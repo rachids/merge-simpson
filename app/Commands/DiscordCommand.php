@@ -2,12 +2,9 @@
 
 namespace App\Commands;
 
-use App\Service\DiscordService;
-use App\Service\GitlabService;
-use App\Service\WeatherService;
+use App\BotCommands\MergeRequestBot;
+use App\BotCommands\WeatherBot;
 use Discord\DiscordCommandClient;
-use Discord\Parts\Channel\Message;
-use Illuminate\Console\Scheduling\Schedule;
 use LaravelZero\Framework\Commands\Command;
 
 class DiscordCommand extends Command
@@ -41,55 +38,60 @@ class DiscordCommand extends Command
 
         $discord = new DiscordCommandClient($config);
 
-        $discord->registerCommand('mr', function (Message $message, array $parameters) {
-
-            $discordService = new DiscordService($message->channel->guild);
-
-            $channel = $discordService->getChannelByName('pull-request');
-            $channel->broadcastTyping();
-
-            $role = $discordService->getRoleByName('Dev');
-
-            $gitlabService = new GitlabService();
-
-            $projects = explode(',', env('GITLAB_PROJECTS'));
-
-            $message = $gitlabService->getMergeMessage($projects);
-
-            if(! empty($message)) {
-                $channel->sendMessage("Chers <@&{$role->id}>! Je crois que ces merge-requests ont besoin de votre amour :blue_heart: \n ");
-                $channel->sendMessage($message);
-            }
-        });
-
-        $discord->registerCommand('meteo', function (Message $message, array $parameters) {
-
-            $message->channel->broadcastTyping();
-
-            $city = $parameters[0] ?? 'Québec';
-
-            $weather = WeatherService::getWeatherForCity($city)[0];
-
-            $emoji = match ($weather['prec_type']) {
-                'rain' => '🌧️',
-                'snow' => '🌨️',
-                default => '☀️'
-            };
-
-            $message->channel->sendMessage("Sur {$city}, il fait **{$weather['temp2m']} ℃** et le temps est {$emoji}.");
-        });
+        // Register every commands
+        $this->registerCommands($discord);
 
         $discord->run();
     }
 
-    /**
-     * Define the command's schedule.
-     *
-     * @param  \Illuminate\Console\Scheduling\Schedule $schedule
-     * @return void
-     */
-    public function schedule(Schedule $schedule): void
+    private function registerCommands(DiscordCommandClient $discord): void
     {
-        // $schedule->command(static::class)->everyMinute();
+        foreach ($this->getCommands() as $command) {
+            $discord->registerCommand($command['name'], $command['callable'], $command['options']);
+        }
+    }
+
+    /**
+     * Return an array containing every discord commands available.
+     * Refer to DiscordPHP documentation for available keys.
+     *
+     * @return array[]
+     */
+    private function getCommands(): array
+    {
+        return [
+            [
+                'name' => 'Merge Requests',
+                'callable' => new MergeRequestBot(),
+                'options' => [
+                    'aliases' => [
+                        'mr',
+                        'merge-request',
+                        'merge-requests',
+                        'mergerequest',
+                        'mergerequests',
+                        'merge',
+                    ],
+                    'cooldown' => 10,
+                    'cooldownMessage' => 'Please wait a few seconds before sending the merge command.',
+                    'description' => 'Lists merge requests waiting for approval',
+                    'longDescription' => 'Give merge requests that are opened and without two thumbsups so that they can be reviewed.',
+                ],
+            ],
+            [
+                'name' => 'Weather',
+                'callable' => new WeatherBot(),
+                'options' => [
+                    'aliases' => [
+                        'weather',
+                        'meteo',
+                    ],
+                    'cooldown' => 10,
+                    'cooldownMessage' => 'Please wait a few seconds before sending the weather command.',
+                    'description' => 'Provide the weather for a given location.',
+                    'longDescription' => 'Give the weather for a location, use it like this: `!weather {city-name}`',
+                ],
+            ],
+        ];
     }
 }
